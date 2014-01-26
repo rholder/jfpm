@@ -1,0 +1,149 @@
+import org.gradle.api.artifacts.maven.MavenDeployment
+
+apply plugin: 'java'
+apply plugin: 'idea'
+apply plugin: 'maven'
+apply plugin: 'signing'
+
+sourceCompatibility = 1.6
+targetCompatibility = 1.6
+
+group = 'com.github.rholder'
+version = '1.0.2.1'
+ext.packaging = 'jar'
+
+repositories {
+    mavenCentral()
+}
+
+configurations.compile {
+    resolutionStrategy.cacheChangingModulesFor 0, "seconds"
+}
+
+task sourcesJar(type: Jar) {
+    from sourceSets.main.allSource
+    classifier = 'sources'
+}
+
+task javadocJar(type: Jar, dependsOn: 'javadoc') {
+    from javadoc.destinationDir
+    classifier = 'javadoc'
+}
+
+task exportJavadoc(type: Copy, dependsOn: 'javadoc') {
+    from javadoc.destinationDir
+    into 'javadoc'
+}
+
+artifacts {
+    archives jar
+    archives sourcesJar
+    archives javadocJar
+}
+
+dependencies {
+    compile "org.jruby:jruby-complete:1.7.10"
+
+    // junit testing
+    testCompile "junit:junit:4.11"
+    testCompile "org.mockito:mockito-all:1.9.5"
+}
+
+task generateRubyGems(type: JavaExec) {
+    group = "Deployment"
+    description = "Builds a standalone gem repository from scratch by running JRuby's gem install for fpm"
+
+    main = 'org.jruby.Main'
+    classpath = configurations.runtime
+    File outputLocation = new File(project.buildDir, 'gems')
+    outputLocation.mkdirs()
+    args '-S', 'gem', 'install', '-i', outputLocation.absolutePath, 'fpm', '--version', '1.0.2', '--no-rdoc', '--no-ri'
+    maxHeapSize = '1024m'
+    inputs.dir project.buildDir
+    outputs.dir outputLocation
+}
+
+task generateRubyGemsJarDev(type: Jar) {
+    group = "Deployment"
+    description = "Extracts a cached gem repository stored in lib/ruby-gems.jar"
+
+    archiveName = 'ruby-gems.jar'
+
+    from zipTree('lib/ruby-gems.jar')
+}
+
+task generateRubyGemsJar(type: Jar, dependsOn: generateRubyGems) {
+    group = "Deployment"
+    description = "Builds a jar from a standalone gem repository"
+
+    archiveName = 'ruby-gems.jar'
+
+    File inputDir = new File(project.buildDir, 'gems')
+    from inputDir
+
+    inputs.dir inputDir
+}
+
+task generateStandaloneJar(type: Jar, dependsOn: [generateRubyGemsJar, classes]) {
+    group = "Deployment"
+    description = "Assembles a standalone executable jar file for fpm"
+
+    manifest {
+        // stuff the original manifest from JRuby into the final jar
+        from("src/config/jruby-complete-1.7.10.mf")
+        // merge attributes from our custom manifest, like the main class
+        from("src/config/fpm-main.mf")
+    }
+
+    // add the gemjar jar file to the root of the final jar
+    from files(generateRubyGemsJar.outputs)
+
+    // rip out the LoadService
+    from(configurations.compile.collect { it.isDirectory() ? it : zipTree(it) }) {
+        exclude 'org/jruby/runtime/load/LoadService.class'
+        exclude 'org/jruby/runtime/load/LoadService$*.class'
+    }
+
+    // inject our modified LoadService into the final jar
+    from files(sourceSets.main.output.classesDir)
+    from files(sourceSets.main.resources)
+
+
+    // with these excluded we can have a simple manifest
+    // without signature errors at runtime
+    exclude 'META-INF/MANIFEST.MF'
+    exclude 'META-INF/*.SF'
+    exclude 'META-INF/*.DSA'
+    exclude 'META-INF/*.RSA'
+
+    baseName = 'fpm-standalone'
+    version = ''
+}
+
+task executableBinary(dependsOn: generateStandaloneJar) {
+
+    group = "Deployment"
+    description = "Assembles a standalone executable binary file for fpm"
+
+    def outputDir = new File(buildDir, "executable")
+    outputs.dir outputDir
+    doLast {
+        generateStandaloneJar.outputs.files.each { jarFile ->
+            outputDir.mkdirs()
+
+            def out = new File(outputDir, 'fpm')
+            out.delete()
+
+            // append a stub script onto the front of the artifact
+            out.append(new FileInputStream(file("src/config/java_stub.sh")))
+            out.append(new FileInputStream(jarFile.absolutePath))
+
+            out.executable = true
+        }
+    }
+}
+
+// enable Gradle Wrapper support for bootstrapping with specific version
+task wrapper(type: Wrapper) {
+    gradleVersion = '1.10'
+}
