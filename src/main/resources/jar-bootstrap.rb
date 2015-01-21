@@ -1,4 +1,6 @@
+require "rubygems"
+
 require 'fpm'
 require 'fpm/command'
 
-FPM::Command.run
+exit(FPM::Command.run || 0)
