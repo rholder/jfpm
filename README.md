@@ -20,7 +20,7 @@ First, if you create a fatjar and just drop all of the gems for a project into t
 `jruby-complete.jar` then it will happily run for you (see [here](https://github.com/jruby/jruby/wiki/StandaloneJarsAndClasses)).
 However, it will also be 10x slower than if you run your application with an external `ruby-gems.jar` rolled from a pile
 of downloaded gems (as sort of described [here](http://watchitlater.com/blog/2011/08/rubygems-in-a-jar/)). Fine, my
-first hack is to just shove the `ruby-gems.jar` file into the final fatjar and extract it at runtime. (2 min -> 20s
+first hack is to just shove the `ruby-gems.jar` file into the final fatjar and extract it at runtime. (2 min -> 20s)
 
 Next, I did several runs of timing this and that and came to the conclusion that the culprit is buried in the
 `LoadService` and the order with which it searches for required dependencies. It iterates over every gem you've included
