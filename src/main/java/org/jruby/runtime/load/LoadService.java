@@ -33,6 +33,7 @@
  ***** END LICENSE BLOCK *****/
 package org.jruby.runtime.load;
 
+import com.github.rholder.fpm.Main;
 import org.jruby.util.collections.StringArraySet;
 import java.io.File;
 import java.io.FileDescriptor;
@@ -1230,6 +1231,16 @@ public class LoadService {
     @Deprecated
     protected LoadServiceResource tryResourceFromLoadPathOrURL(SearchState state, String baseName, SuffixType suffixType) {
         LoadServiceResource foundResource = null;
+
+        // some hackery to read from a cached jar index
+        String possibleLoadPath = Main.GEM_INDEX.get(baseName + ".rb");
+        if(possibleLoadPath != null) {
+            foundResource = tryResourceFromJarURLWithLoadPath(baseName + ".rb", possibleLoadPath);
+            if(foundResource != null) {
+                state.loadName = resolveLoadName(foundResource, foundResource.getName());
+                return foundResource;
+            }
+        }
 
         // if it's a ./ baseName, use ./ logic
         if (baseName.startsWith("./")) {
